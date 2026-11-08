@@ -15,8 +15,15 @@ const obra = (id: string, titulo: string, resumo: string, oa: string | null) => 
 });
 
 const respostas: Record<string, any> = {
+  plano_de_ensino: {
+    visao_geral: "Visão.", fio_condutor: "Fio.",
+    niveis: [1, 2, 3, 4, 5].map((n) => ({ n, titulo: `Nível ${n}`, objetivo: "Objetivo", ano_referencia_mapa: 1540, secoes: [
+      { titulo: "Origem", pergunta_guia: "Como surgiram?", conteudos: ["doações"], buscas: ["capitanias hereditárias", "hereditary captaincies", "donatários"] },
+      { titulo: "Pernambuco", pergunta_guia: "Por que deu certo?", conteudos: ["engenhos"], buscas: ["Pernambuco engenhos", "Pernambuco sugar", "Olinda colonial"] },
+    ] })),
+  },
   plano: { buscas: ["capitanias hereditárias", "donatários Brasil colonial", "hereditary captaincies Brazil"], secoes: ["Origem", "Funcionamento", "Crise"], ano_referencia_mapa: 1540 },
-  triagem: { selecionadas: [{ indice: 0, motivo: "central" }, { indice: 1, motivo: "estudo de caso" }] },
+  triagem: { selecionadas: [{ indice: 0, secao: 1, motivo: "central" }, { indice: 1, secao: 2, motivo: "estudo de caso" }, { indice: 2, secao: 2, motivo: "tese" }] },
   nivel: {
     titulo: "As capitanias hereditárias",
     abertura: "Este nível apresenta o sistema de capitanias.",
@@ -34,7 +41,7 @@ const respostas: Record<string, any> = {
     ],
     conceitos: [{ termo: "Donatário", definicao: "Quem recebia a capitania.", fontes: ["S1"] }, { termo: "Sem fonte", definicao: "x", fontes: ["S7"] }],
     cronologia: [{ ano: 1534, evento: "Criação das capitanias", fonte: "S1" }, { ano: 1549, evento: "Ano que não está na fonte", fonte: "S1" }, { ano: 1630, evento: "Engenhos", fonte: "S2" }],
-    lugares: [{ nome_no_periodo: "Olinda", nome_atual: "Olinda", pais_atual: "Brasil", papel: "vila", fonte: "S2" }, { nome_no_periodo: "Salvador", nome_atual: "Salvador", pais_atual: "Brasil", papel: "capital", fonte: "S2" }],
+    lugares: [{ nome_no_periodo: "Olinda", nome_atual: "Olinda", pais_atual: "Brasil", papel: "vila", fonte: "S2", secao: 2 }, { nome_no_periodo: "Salvador", nome_atual: "Salvador", pais_atual: "Brasil", papel: "capital", fonte: "S2", secao: 2 }],
     dados_numericos: [
       { titulo: "Engenhos em Pernambuco", unidade: "engenhos", serie: [{ rotulo: "1583", valor: 66 }, { rotulo: "1630", valor: 121 }], fonte: "S2", trecho_literal: "66 engenhos em 1583 e 121 engenhos em 1630" },
       { titulo: "Inventado", unidade: "x", serie: [{ rotulo: "a", valor: 5 }, { rotulo: "b", valor: 9 }], fonte: "S2", trecho_literal: "66 engenhos em 1583 e 121 engenhos em 1630" },
@@ -48,6 +55,10 @@ globalThis.fetch = (async (input: any, init?: any) => {
   const json = (o: any) => new Response(JSON.stringify(o), { status: 200, headers: { "content-type": "application/json" } });
   if (url.includes("api.openalex.org") && url.includes("group_by")) return json({ group_by: [{ key: "2013", count: 40 }, { key: "2021", count: 70 }, { key: "1999", count: 5 }] });
   if (url.includes("api.openalex.org")) return json({ results: [obra("W1", "Reconstruindo o mapa das capitanias", RESUMO_A, "https://oa.example/artigo"), obra("W2", "Pernambuco açucareiro", RESUMO_B, null)] });
+  if (url.includes("semanticscholar")) return json({ data: [] });
+  if (url.includes("archive.org/advancedsearch")) return json({ response: { docs: [] } });
+  if (url.includes("bdtd.ibict.br")) return json({ records: [{ id: "T1", rawData: { title: ["Senhores de engenho em Pernambuco"], author: ["Souza, Maria de"], format: ["doctoralThesis"], publishDate: ["2015"], instname_str: "Universidade Federal de Pernambuco", url: ["https://repositorio.ufpe.br/handle/1"], description: "Esta tese analisa a sociedade açucareira de Pernambuco entre os séculos XVI e XVII, com atenção aos senhores de engenho, lavradores de cana e à organização da produção nas várzeas, a partir de inventários e documentação da Câmara de Olinda." } }] });
+  if (url.includes("repositorio.ufpe.br")) return new Response("<html>curto</html>", { status: 200, headers: { "content-type": "text/html" } });
   if (url.includes("api.crossref.org")) return json({ message: { "publisher-location": "São Paulo", "container-title": ["Anais do Museu Paulista"] } });
   if (url.includes("oa.example")) return new Response(TEXTO_OA, { status: 200, headers: { "content-type": "text/html" } });
   if (url.includes("nominatim")) return json([{ lat: "-8.01", lon: "-34.86", display_name: "Olinda, PE, Brasil" }]);
@@ -86,12 +97,18 @@ test("pipeline gera nível só com conteúdo verificável", async () => {
   assert.deepEqual(lv.cronologia.map((e: any) => e.ano), [1534, 1630]);
   // lugares: Salvador não está no texto da fonte S2
   assert.equal(lv.mapa.lugares.length, 1);
+  assert.equal(lv.mapa.lugares[0].secao, 2);
+  // plano de ensino salvo no estudo e tese da BDTD salva com ABNT de tese
+  assert.equal(sb.db.studies[0].plano.niveis.length, 5);
+  const tese = sb.db.sources.find((s: any) => s.base === "bdtd");
+  assert.ok(tese, "tese da BDTD deveria ser selecionada");
+  assert.match(tese.abnt, /SOUZA, Maria de\. Senhores de engenho em Pernambuco\. 2015\. Tese \(Doutorado\) – Universidade Federal de Pernambuco/);
   assert.equal(lv.mapa.basemap, "world_1530");
   // dados numéricos: só a série cujos números estão no trecho
   assert.equal(lv.graficos.dados.length, 1);
   assert.equal(lv.graficos.producao.decadas.length, 3);
   // fontes salvas com ABNT e texto completo
-  assert.equal(sb.db.sources.length, 2);
+  assert.equal(sb.db.sources.length, 3);
   assert.ok(sb.db.sources.find((s: any) => s.openalex_id === "W1").texto_completo.includes("donatários"));
   assert.match(sb.db.sources[0].abnt, /CINTRA, Jorge Pimentel\. .*São Paulo, v\. 21, n\. 2, p\. 11-45, 2013\. DOI: https:\/\/doi\.org\//);
   assert.equal(sb.db.questions.length, 2);

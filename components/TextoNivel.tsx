@@ -1,4 +1,6 @@
 import { partirCitacoes } from "@/lib/citar";
+import Mapa, { type MapaDados } from "./Mapa";
+import { fmtAno } from "@/lib/periodos";
 
 export type Conteudo = {
   titulo: string;
@@ -39,7 +41,24 @@ export function CitacaoDireta({ c, chaves }: { c: { fonte: string; trecho: strin
   );
 }
 
-export default function TextoNivel({ c, chaves, aoClicar, numeracao }: { c: Conteudo; chaves: Record<string, string>; aoClicar?: (id: string) => void; numeracao?: string }) {
+/** Mapa logo abaixo da seção, com os lugares que as fontes daquela seção citam. */
+function MapaDaSecao({ mapa, secao, chaves, brasil, estatico, legenda }: { mapa: MapaDados; secao: number; chaves: Record<string, string>; brasil?: boolean; estatico?: boolean; legenda?: (lugares: any[]) => React.ReactNode }) {
+  const lugares = (mapa?.lugares || []).filter((l) => l.secao === secao);
+  if (!mapa || !lugares.length) return null;
+  return (
+    <figure className={`mapa-secao${estatico ? " fig" : ""}`} style={{ margin: "14px 0 22px" }}>
+      {legenda ? legenda(lugares) : <figcaption className="small muted" style={{ marginBottom: 6, fontFamily: "var(--f-ui)" }}>Mapa da seção: {lugares.map((l) => `${l.nome_no_periodo} (hoje ${l.nome_atual}, ${l.pais_atual})`).join("; ")}{mapa.basemap && mapa.ano != null ? ` · fronteiras aproximadas de ${fmtAno(mapa.ano)}` : ""}</figcaption>}
+      <Mapa dados={{ ...mapa, lugares }} brasil={brasil} chaves={chaves} compacto estatico={estatico} altura={estatico ? 360 : 340} />
+      {estatico && (
+        <p className="fon">
+          Fonte: elaborado pelo autor com Natural Earth, historical-basemaps (Ourednik) e OpenStreetMap, a partir de {[...new Set(lugares.map((x) => chaves[x.fonte]))].join("; ")}. Legenda: {lugares.map((x, k) => `${k + 1}. ${x.nome_no_periodo} (hoje ${x.nome_atual}, ${x.pais_atual})`).join("; ")}.
+        </p>
+      )}
+    </figure>
+  );
+}
+
+export default function TextoNivel({ c, chaves, aoClicar, numeracao, mapa, brasil, mapaEstatico, legendaMapa }: { c: Conteudo; chaves: Record<string, string>; aoClicar?: (id: string) => void; numeracao?: string; mapa?: MapaDados; brasil?: boolean; mapaEstatico?: boolean; legendaMapa?: (secao: number, lugares: any[]) => React.ReactNode }) {
   return (
     <article className="prosa">
       <p style={{ fontStyle: "italic", color: "var(--muted)" }}>{c.abertura}</p>
@@ -52,6 +71,7 @@ export default function TextoNivel({ c, chaves, aoClicar, numeracao }: { c: Cont
               {p.citacao && <CitacaoDireta c={p.citacao} chaves={chaves} />}
             </div>
           ))}
+          {mapa && <MapaDaSecao mapa={mapa} secao={i + 1} chaves={chaves} brasil={brasil} estatico={mapaEstatico} legenda={legendaMapa ? (ls) => legendaMapa(i + 1, ls) : undefined} />}
         </section>
       ))}
       {!!c.conceitos?.length && (

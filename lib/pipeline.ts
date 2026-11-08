@@ -6,9 +6,11 @@ import { obterTextoCompleto } from "./textoCompleto";
 import { referenciaTexto } from "./abnt";
 import { melhoresTrechos, normalizar, numeroNoTrecho, termos, trechoConfere } from "./texto";
 import { geocodificarLista } from "./geo";
-import { gerarJSON, MODELO_RAPIDO, obj, str, int, num, arr, nullable } from "./ia";
+import { gerarJSON, MODELO_RAPIDO, obj, str, int, num, arr } from "./ia";
+import { buscarSemanticScholar, buscarCore, buscarBdtd, buscarInternetArchive } from "./bases/outras";
+import { gerarPlanoDeEnsino, type PlanoEnsino } from "./plano";
 
-export type Estudo = { id: string; titulo: string; tema: string; divisao: string; periodo: string | null; inicio: number | null; fim: number | null };
+export type Estudo = { id: string; titulo: string; tema: string; divisao: string; periodo: string | null; inicio: number | null; fim: number | null; plano?: any };
 export type FonteDB = Candidato & { id: string; abnt: string; texto_completo: string | null; nivel: number | null };
 
 const REGRAS_FONTES = `REGRAS INEGOCIÁVEIS:
@@ -55,8 +57,6 @@ export function materialDasFontes(fs: FonteDB[], consulta: string, orcamento = 9
 
 const textoVerificavel = (f: FonteDB) => `${f.titulo}\n${f.resumo || ""}\n${f.texto_completo || ""}`;
 
-type Plano = { buscas: string[]; secoes: string[]; ano_referencia_mapa: number | null };
-type Triagem = { selecionadas: { indice: number; motivo: string }[] };
 type Paragrafo = { tipo: "fonte" | "explicacao"; texto: string; fontes: string[]; citacao_direta: { fonte: string; trecho: string } | null };
 type Escrita = {
   titulo: string;
@@ -64,7 +64,7 @@ type Escrita = {
   secoes: { titulo: string; paragrafos: Paragrafo[] }[];
   conceitos: { termo: string; definicao: string; fontes: string[] }[];
   cronologia: { ano: number; evento: string; fonte: string }[];
-  lugares: { nome_no_periodo: string; nome_atual: string; pais_atual: string; papel: string; fonte: string }[];
+  lugares: { nome_no_periodo: string; nome_atual: string; pais_atual: string; papel: string; fonte: string; secao: number }[];
   dados_numericos: { titulo: string; unidade: string; serie: { rotulo: string; valor: number }[]; fonte: string; trecho_literal: string }[];
 };
 type Perguntas = {
@@ -82,56 +82,76 @@ export async function gerarNivel(sb: SupabaseClient, estudo: Estudo, n: number, 
     .map((l: any) => `Nível ${l.n} — ${l.titulo}: ${(l.conteudo?.secoes || []).map((s: any) => s.titulo).join("; ")}`)
     .join("\n");
 
-  // 1. Planejar
-  await etapa(sb, levelId, "Planejando as buscas e as seções do nível");
-  const plano = await gerarJSON<Plano>({
-    modelo: MODELO_RAPIDO(),
-    nome: "plano",
-    sistema: "Você é um professor de História que planeja estudos acadêmicos de graduação no Brasil.",
-    usuario: `Tema do estudo: ${estudo.tema}\nPeríodo: ${periodo}\nNível ${n} de 5: ${nivel.nome} — ${nivel.foco}\n${resumoAnteriores ? `Já estudado nos níveis anteriores:\n${resumoAnteriores}\n` : ""}
-Planeje:
-1) "buscas": 6 consultas curtas (2 a 6 palavras) para encontrar artigos acadêmicos na OpenAlex sobre este nível do tema. Misture português (pelo menos 3), inglês e espanhol. Use termos que historiadores usariam em títulos e resumos.
-2) "secoes": 5 a 7 títulos de seções para um texto de 3 a 4 páginas neste nível, sem repetir o que já foi estudado.
-3) "ano_referencia_mapa": um ano representativo para mostrar fronteiras de época no mapa (negativo para a.C.), ou null se o tema não tiver espaço geográfico definido.`,
-    schema: obj({ buscas: arr(str), secoes: arr(str), ano_referencia_mapa: nullable(int) }),
-    maxTokens: 800,
+  // 1. Plano de ensino (gerado uma vez por estudo)
+  await etapa(sb, levelId, "Consultando o plano de ensino do estudo");
+  const planoEnsino: PlanoEnsino = estudo.plano?.niveis?.length ? estudo.plano : await gerarPlanoDeEnsino(sb, estudo);
+  const nivelPlano = planoEnsino.niveis[n - 1];
+  const secoesPlano = nivelPlano.secoes;
+  const plano = {
+    buscas: secoesPlano.flatMap((s) => s.buscas),
+    secoes: secoesPlano.map((s) => s.titulo),
+    ano_referencia_mapa: nivelPlano.ano_referencia_mapa,
+  };
+
+  // 2. Buscar em todas as bases, seção por seção
+  await etapa(sb, levelId, "Buscando fontes em OpenAlex, Semantic Scholar, CORE, BDTD e Internet Archive");
+  const tarefas: { secao: number; p: Promise<Candidato[]> }[] = [];
+  secoesPlano.forEach((sec, i) => {
+    sec.buscas.slice(0, 3).forEach((q) => tarefas.push({ secao: i + 1, p: buscarObras(q, 10) }));
+    const q0 = sec.buscas[0] || sec.titulo, q1 = sec.buscas[1] || q0;
+    tarefas.push({ secao: i + 1, p: buscarSemanticScholar(q1, 8) });
+    tarefas.push({ secao: i + 1, p: buscarCore(q1, 6) });
+    tarefas.push({ secao: i + 1, p: buscarBdtd(q0, 6) });
+    tarefas.push({ secao: i + 1, p: buscarInternetArchive(q1, 4) });
   });
-
-  // 2. Buscar
-  await etapa(sb, levelId, "Buscando artigos, livros e capítulos na OpenAlex");
-  const lotes = await Promise.allSettled(plano.buscas.slice(0, 7).map((q) => buscarObras(q, 15)));
+  const lotes = await Promise.allSettled(tarefas.map((t) => t.p));
+  const chave = (c: Candidato) => (c.doi ? "doi:" + c.doi.toLowerCase() : "t:" + normalizar(c.titulo).slice(0, 90));
   const vistos = new Map<string, Candidato>();
-  for (const l of lotes) if (l.status === "fulfilled") for (const c of l.value) if (!vistos.has(c.openalex_id) && (c.resumo?.length || 0) > 200) vistos.set(c.openalex_id, c);
+  lotes.forEach((l, k) => {
+    if (l.status !== "fulfilled") return;
+    for (const c of l.value) {
+      if ((c.resumo?.length || 0) < 200) continue;
+      const ch = chave(c);
+      const ex = vistos.get(ch);
+      if (ex) { ex.secoes = [...new Set([...(ex.secoes || []), tarefas[k].secao])]; if (!ex.texto_previo && c.texto_previo) ex.texto_previo = c.texto_previo; if (!ex.url_oa && c.url_oa) ex.url_oa = c.url_oa; }
+      else vistos.set(ch, { ...c, secoes: [tarefas[k].secao] });
+    }
+  });
+  const basesComResultado = [...new Set([...vistos.values()].map((c) => c.base || "openalex"))];
   const { data: jaNoEstudo } = await sb.from("sources").select("*").eq("study_id", estudo.id);
+  const existentes = new Set((jaNoEstudo || []).map((s: any) => (s.doi ? "doi:" + String(s.doi).toLowerCase() : "t:" + normalizar(s.titulo).slice(0, 90))));
   const idsExistentes = new Set((jaNoEstudo || []).map((s: any) => s.openalex_id));
-  const candidatos = [...vistos.values()].filter((c) => !idsExistentes.has(c.openalex_id)).slice(0, 70);
-  if (!candidatos.length && !(jaNoEstudo || []).length) throw new Error("Nenhuma fonte acadêmica encontrada na OpenAlex para este tema. Reformule o tema com termos mais usuais.");
+  const candidatos = [...vistos.entries()].filter(([ch, c]) => !existentes.has(ch) && !idsExistentes.has(c.openalex_id)).map(([, c]) => c).slice(0, 120);
+  if (!candidatos.length && !(jaNoEstudo || []).length) throw new Error("Nenhuma fonte acadêmica encontrada para este tema. Reformule o tema com termos mais usuais.");
 
-  // 3. Triar relevância
+  // 3. Triar relevância por seção
   await etapa(sb, levelId, `Selecionando as fontes mais relevantes entre ${candidatos.length} encontradas`);
   let escolhidos: Candidato[] = [];
   if (candidatos.length) {
     const lista = candidatos
-      .map((c, i) => `[${i}] ${c.titulo} (${c.ano ?? "s.d."}; ${c.tipo}; ${c.revista || c.editora || "?"}; ${c.citacoes} citações)\n${(c.resumo || "").slice(0, 450)}`)
+      .map((c, i) => `[${i}] (${c.base}; seções ${(c.secoes || []).join(",")}) ${c.titulo} (${c.ano ?? "s.d."}; ${c.tipo}${c.grau ? ", " + c.grau : ""}; ${c.revista || c.editora || c.instituicao || "?"}; ${c.citacoes} citações)\n${(c.resumo || "").slice(0, 380)}`)
       .join("\n\n");
-    const tri = await gerarJSON<Triagem>({
+    const tri = await gerarJSON<{ selecionadas: { indice: number; secao: number; motivo: string }[] }>({
       modelo: MODELO_RAPIDO(),
       nome: "triagem",
-      sistema: "Você seleciona bibliografia acadêmica de História com rigor. Descarte trabalhos fora do tema, de outras áreas sem relação histórica, resenhas muito curtas e textos sem conteúdo histórico substantivo.",
-      usuario: `Tema: ${estudo.tema}\nPeríodo: ${periodo}\nNível ${n}: ${nivel.nome} — ${nivel.foco}\nSeções planejadas: ${plano.secoes.join("; ")}\n\nEscolha de 8 a 12 trabalhos que melhor sustentam este nível (prefira relevância direta, depois diversidade de abordagens). Se houver poucos relevantes, escolha menos. Devolva os índices.\n\n${lista}`,
-      schema: obj({ selecionadas: arr(obj({ indice: int, motivo: str })) }),
-      maxTokens: 1500,
+      sistema: "Você seleciona bibliografia acadêmica de História com rigor. Descarte trabalhos fora do tema, de outras áreas sem relação histórica, resenhas muito curtas, textos sem conteúdo histórico substantivo e itens não acadêmicos (posts, apostilas, material religioso ou esotérico, pseudo-história).",
+      usuario: `Tema: ${estudo.tema}\nPeríodo: ${periodo}\nNível ${n}: ${nivelPlano.titulo} — ${nivelPlano.objetivo}\nSeções do nível:\n${secoesPlano.map((s, i) => `${i + 1}. ${s.titulo} — ${s.pergunta_guia}`).join("\n")}\n\nEscolha de 12 a 16 trabalhos e indique a seção principal de cada um. Tente garantir pelo menos 2 trabalhos por seção. Prefira relevância direta, depois diversidade (artigos, teses, livros). Se houver poucos relevantes, escolha menos.\n\n${lista}`,
+      schema: obj({ selecionadas: arr(obj({ indice: int, secao: int, motivo: str })) }),
+      maxTokens: 2500,
     });
-    escolhidos = tri.selecionadas.map((s) => candidatos[s.indice]).filter(Boolean).slice(0, 12);
+    escolhidos = tri.selecionadas
+      .filter((s) => candidatos[s.indice])
+      .slice(0, 16)
+      .map((s) => ({ ...candidatos[s.indice], secoes: [...new Set([s.secao, ...(candidatos[s.indice].secoes || [])])] }));
   }
 
   // 4. Conferir metadados
   await etapa(sb, levelId, "Conferindo metadados pelo DOI na Crossref");
-  escolhidos = await Promise.all(escolhidos.map(enriquecerCrossref));
+  escolhidos = await Promise.all(escolhidos.map((c) => (c.doi ? enriquecerCrossref(c) : c)));
 
   // 5. Ler textos completos em acesso aberto
   await etapa(sb, levelId, "Lendo os textos completos disponíveis em acesso aberto");
-  const textos = await Promise.all(escolhidos.map((c) => obterTextoCompleto(c.url_oa)));
+  const textos = await Promise.all(escolhidos.map((c) => (c.texto_previo ? Promise.resolve(c.texto_previo) : obterTextoCompleto(c.url_oa))));
 
   // 6. Salvar fontes novas
   if (escolhidos.length) {
@@ -158,6 +178,10 @@ Planeje:
       url_oa: c.url_oa,
       abnt: referenciaTexto({ id: c.openalex_id, ...c }),
       nivel: n,
+      base: c.base || "openalex",
+      instituicao: c.instituicao || null,
+      grau: c.grau || null,
+      secoes: c.secoes || null,
     }));
     const { error } = await sb.from("sources").upsert(linhas, { onConflict: "study_id,openalex_id" });
     if (error) throw new Error("Erro ao salvar fontes: " + error.message);
@@ -166,7 +190,7 @@ Planeje:
   // Fontes usadas na escrita: as novas + até 5 anteriores mais relacionadas
   const { data: todas } = await sb.from("sources").select("*").eq("study_id", estudo.id);
   const novas = (todas || []).filter((s: any) => s.nivel === n) as FonteDB[];
-  const consulta = `${estudo.tema} ${plano.secoes.join(" ")}`;
+  const consulta = `${estudo.tema} ${secoesPlano.map((s) => `${s.titulo} ${s.conteudos.join(" ")}`).join(" ")}`;
   const qt = new Set(termos(consulta));
   const antigas = (todas || [])
     .filter((s: any) => s.nivel !== n)
@@ -185,16 +209,19 @@ Planeje:
     maxTokens: 12000,
     temperatura: 0.4,
     sistema: `Você é um historiador e professor universitário brasileiro escrevendo material de estudo para graduação em História, em português do Brasil, com rigor acadêmico e clareza.\n${REGRAS_FONTES}`,
-    usuario: `TEMA: ${estudo.tema}\nPERÍODO: ${periodo}\nNÍVEL ${n} DE 5 — ${nivel.nome}: ${nivel.foco}\n${resumoAnteriores ? `NÍVEIS JÁ ESTUDADOS (não repita, aprofunde):\n${resumoAnteriores}\n` : ""}SEÇÕES SUGERIDAS: ${plano.secoes.join(" | ")} (ajuste conforme o que as fontes realmente sustentam)
+    usuario: `TEMA: ${estudo.tema}\nPERÍODO: ${periodo}\nNÍVEL ${n} DE 5 — ${nivel.nome}: ${nivelPlano.titulo}\nOBJETIVO DO NÍVEL: ${nivelPlano.objetivo}\nFIO CONDUTOR DO ESTUDO: ${planoEnsino.fio_condutor}\n${resumoAnteriores ? `NÍVEIS JÁ ESTUDADOS (não repita, aprofunde):\n${resumoAnteriores}\n` : ""}
+PLANO DE ENSINO DESTE NÍVEL (siga exatamente esta ordem de seções):
+${secoesPlano.map((sec, i) => `SEÇÃO ${i + 1}: ${sec.titulo}\n  Pergunta-guia: ${sec.pergunta_guia}\n  Deve cobrir: ${sec.conteudos.join("; ")}\n  Fontes encontradas para esta seção: ${usadas.filter((f: any) => (f.secoes || []).includes(i + 1)).map((f) => mat.rotulos[f.id]).join(", ") || "(nenhuma específica; use as gerais se servirem)"}`).join("\n")}
 
-TAREFA: escreva um texto corrido e bem desenvolvido para este nível, com 2.000 a 2.600 palavras (3 a 4 páginas), em 5 a 7 seções, com parágrafos densos (4 a 7 frases). A complexidade deve corresponder ao nível ${n} (nível 1 introdutório; nível 5 de pesquisa) e o texto deve aprofundar o que já foi visto, não repetir.
-- Intercale parágrafos "fonte" e "explicacao" para que a leitura flua como uma aula escrita. Cada seção deve ter pelo menos 2 parágrafos "fonte"; no total, pelo menos 60% dos parágrafos devem ser "fonte".
+TAREFA: escreva o texto deste nível como uma aula escrita, com lógica de ensino: comece do mais básico e avance para o mais complexo, siga a ordem cronológica quando houver, e faça cada seção responder à sua pergunta-guia. Escreva de 2.000 a 2.600 palavras (3 a 4 páginas), com as seções do plano NA MESMA ORDEM e com os mesmos títulos (pode ajustar levemente a redação), parágrafos densos (4 a 7 frases).
+- Use parágrafos "explicacao" para dar o fio didático: introduzir a seção, explicar conceitos, ligar uma seção à outra e retomar o que já foi visto. Use parágrafos "fonte" para todos os fatos, datas, nomes e interpretações.
+- Cada seção deve ter pelo menos 2 parágrafos "fonte"; se as fontes não cobrem um conteúdo planejado, diga em um parágrafo "explicacao" que a bibliografia encontrada não trata dele, sem inventar.
 - Em "fontes" de cada parágrafo liste os rótulos usados no texto (vazio nos parágrafos "explicacao").
 - Traga citações diretas: em cada seção, coloque "citacao_direta" em pelo menos um parágrafo "fonte" sempre que o material tiver um trecho adequado (trechos literais de até 40 palavras; no máximo 10 no texto todo).
 Também extraia, SOMENTE do material:
 - "conceitos": 4 a 8 conceitos-chave com definição baseada nas fontes;
 - "cronologia": eventos com ano explícito no material (o número do ano precisa aparecer no texto da fonte indicada);
-- "lugares": lugares geográficos citados no material (nome no período, nome atual da cidade/região, país atual, papel no tema);
+- "lugares": lugares geográficos citados no material (nome no período, nome atual da cidade/região, país atual, papel no tema) e "secao", o número da seção (1, 2, 3...) em que o lugar aparece no texto, para o mapa ser mostrado logo abaixo dela;
 - "dados_numericos": apenas séries numéricas que aparecem literalmente em um trecho do material (copie o trecho em "trecho_literal"); se não houver, devolva lista vazia.
 "abertura": 2 a 3 frases apresentando o nível, sem marcadores.
 
@@ -206,7 +233,7 @@ ${mat.texto}`,
       secoes: arr(obj({ titulo: str, paragrafos: arr(obj({ tipo: { type: "string", enum: ["fonte", "explicacao"] }, texto: str, fontes: arr(str), citacao_direta: { anyOf: [obj({ fonte: str, trecho: str }), { type: "null" }] } })) })),
       conceitos: arr(obj({ termo: str, definicao: str, fontes: arr(str) })),
       cronologia: arr(obj({ ano: int, evento: str, fonte: str })),
-      lugares: arr(obj({ nome_no_periodo: str, nome_atual: str, pais_atual: str, papel: str, fonte: str })),
+      lugares: arr(obj({ nome_no_periodo: str, nome_atual: str, pais_atual: str, papel: str, fonte: str, secao: int })),
       dados_numericos: arr(obj({ titulo: str, unidade: str, serie: arr(obj({ rotulo: str, valor: num })), fonte: str, trecho_literal: str })),
     }),
   });
@@ -296,7 +323,7 @@ ${mat.texto}`,
   const geo = await geocodificarLista(lugaresOk.map((l) => ({ ...l, pais_atual: l.pais_atual })));
   const lugares = geo
     .filter((g) => g.geo)
-    .map((g) => ({ nome_no_periodo: g.nome_no_periodo, nome_atual: g.nome_atual, pais_atual: g.pais_atual, papel: g.papel, fonte: idDe(g.fonte)!, lat: g.geo!.lat, lon: g.geo!.lon }));
+    .map((g) => ({ nome_no_periodo: g.nome_no_periodo, nome_atual: g.nome_atual, pais_atual: g.pais_atual, papel: g.papel, fonte: idDe(g.fonte)!, secao: g.secao, lat: g.geo!.lat, lon: g.geo!.lon }));
   const anoMapa = plano.ano_referencia_mapa ?? (estudo.inicio != null && estudo.fim != null ? Math.round((estudo.inicio + Math.min(estudo.fim, 2000)) / 2) : null);
   const mapa = { basemap: basemapMaisProximo(anoMapa), ano: anoMapa, lugares };
 
@@ -352,6 +379,8 @@ ${mat.texto}`,
     palavras,
     fontes_usadas: usadas.map((f) => f.id),
     buscas: plano.buscas,
+    bases: basesComResultado,
+    plano: { titulo: nivelPlano.titulo, objetivo: nivelPlano.objetivo, perguntas: secoesPlano.map((x) => x.pergunta_guia) },
     modelo: process.env.OPENAI_MODEL || "gpt-4.1",
   };
   const { error } = await sb

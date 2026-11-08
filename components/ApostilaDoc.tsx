@@ -23,7 +23,7 @@ body:has(.apostila){background:#e9ecee}
 .capa{display:flex;flex-direction:column;justify-content:space-between;text-align:center;min-height:24cm;text-transform:uppercase;font-weight:700}
 .capa .tit{font-size:16pt}
 .sumario p{margin:0 0 4pt;text-align:left}.sumario p.sub{padding-left:1cm}
-.fig{margin:14pt 0;break-inside:avoid;text-align:center}.fig .leg{font-size:10pt;text-align:center;margin:4pt 0}.fig .fon{font-size:10pt;text-align:left;margin:4pt 0}
+.fig{margin:14pt 0;break-inside:avoid;text-align:center}.apostila figure.fig{margin-left:0;margin-right:0}.fig .leg{font-size:10pt;text-align:center;margin:4pt 0}.fig .fon{font-size:10pt;text-align:left;margin:4pt 0}
 .fig svg text{fill:#111!important}
 .refs p{text-align:left;text-indent:0;margin:0 0 12pt;line-height:1}
 .quadro{width:100%;border-collapse:collapse;font-size:10pt;line-height:1.2}.quadro td,.quadro th{border:1px solid #111;padding:4px 6px;text-align:left;vertical-align:top}
@@ -79,12 +79,20 @@ export function ApostilaDoc({ estudo, niveis, fontes, perguntas, so, autor, impr
           return (
             <section key={l.id} className="quebra">
               <p className="cap">{i + 1} {NIVEIS[l.n - 1].nome.toUpperCase()}: {String(l.titulo || "").toUpperCase()}</p>
-              <TextoNivel c={l.conteudo} chaves={chaves} numeracao={String(i + 1)} />
-              {!!l.mapa?.lugares?.length && (
+              <TextoNivel
+                c={l.conteudo}
+                chaves={chaves}
+                numeracao={String(i + 1)}
+                mapa={l.mapa}
+                brasil={estudo.periodo?.startsWith("br-")}
+                mapaEstatico
+                legendaMapa={(secao) => <p className="leg">Figura {++fig} – Lugares citados na seção {i + 1}.{secao}{l.mapa?.basemap && l.mapa?.ano != null ? `, sobre fronteiras aproximadas de ${fmtAno(l.mapa.ano)}` : ""}</p>}
+              />
+              {!!l.mapa?.lugares?.some((x: any) => !x.secao) && (
                 <div className="fig">
                   <p className="leg">Figura {++fig} – Lugares citados nas fontes do nível {l.n}{l.mapa.basemap ? `, sobre fronteiras aproximadas de ${fmtAno(l.mapa.ano)}` : ""}</p>
-                  <MapaApostila dados={l.mapa} brasil={estudo.periodo?.startsWith("br-")} chaves={chaves} />
-                  <p className="fon">Fonte: elaborado pelo autor com Natural Earth, historical-basemaps (Ourednik) e OpenStreetMap, a partir de {[...new Set(l.mapa.lugares.map((x: any) => chaves[x.fonte]))].join("; ")}. Legenda: {l.mapa.lugares.map((x: any, k: number) => `${k + 1}. ${x.nome_no_periodo} (hoje ${x.nome_atual}, ${x.pais_atual})`).join("; ")}.</p>
+                  <MapaApostila dados={{ ...l.mapa, lugares: l.mapa.lugares.filter((x: any) => !x.secao) }} brasil={estudo.periodo?.startsWith("br-")} chaves={chaves} />
+                  <p className="fon">Fonte: elaborado pelo autor com Natural Earth, historical-basemaps (Ourednik) e OpenStreetMap, a partir de {[...new Set(l.mapa.lugares.filter((x: any) => !x.secao).map((x: any) => chaves[x.fonte]))].join("; ")}. Legenda: {l.mapa.lugares.filter((x: any) => !x.secao).map((x: any, k: number) => `${k + 1}. ${x.nome_no_periodo} (hoje ${x.nome_atual}, ${x.pais_atual})`).join("; ")}.</p>
                 </div>
               )}
               {!!l.cronologia?.length && (

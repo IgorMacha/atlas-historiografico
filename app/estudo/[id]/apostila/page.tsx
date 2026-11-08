@@ -14,7 +14,7 @@ export default async function Apostila({ params, searchParams }: { params: { id:
   if (so) q = q.eq("n", so);
   const [{ data: niveis }, { data: fontes }, { data: perguntas }] = await Promise.all([
     q,
-    sb.from("sources").select("id,tipo,titulo,autores,ano,revista,editora,local,volume,numero,paginas,doi,url").eq("study_id", estudo.id),
+    sb.from("sources").select("id,tipo,titulo,autores,ano,revista,editora,local,volume,numero,paginas,doi,url,grau,instituicao").eq("study_id", estudo.id),
     sb.from("questions").select("*").eq("study_id", estudo.id).order("ordem"),
   ]);
   return <ApostilaDoc estudo={estudo} niveis={(niveis || []) as any[]} fontes={(fontes || []) as any[]} perguntas={(perguntas || []) as any[]} so={so} autor={process.env.AUTOR_NOME || user.email || ""} imprimir={searchParams.imprimir === "1"} comPerguntas={searchParams.perguntas !== "0"} />;

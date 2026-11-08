@@ -8,7 +8,8 @@ Estudo sistemático de História em 5 níveis, com fontes acadêmicas reais, map
 2. O sistema cria uma **pasta de estudo** e gera o **nível 1**. Os níveis seguintes são gerados um por vez, quando você pedir:
    1. Panorama · 2. Processos e estruturas · 3. Fontes e evidências · 4. Debates historiográficos · 5. Fronteiras de pesquisa
 3. Para cada nível:
-   - **Busca** artigos, livros e capítulos na **OpenAlex** (Artes e Humanidades e Ciências Sociais, só obras com resumo).
+   - Na criação do estudo, monta um **plano de ensino** dos 5 níveis (aba Trilha), em ordem didática: do surgimento do tema às questões de pesquisa.
+   - **Busca**, seção por seção do plano, em **OpenAlex**, **Semantic Scholar**, **CORE**, **BDTD** (teses e dissertações brasileiras) e **Internet Archive** (livros digitalizados).
    - **Seleciona** as fontes mais relevantes, **confere os metadados** pelo DOI na **Crossref** e **lê o texto completo** quando ele está em acesso aberto.
    - **Escreve** um texto de 3 a 4 páginas (OpenAI) usando **somente** esse material.
    - **Verifica** tudo automaticamente:
@@ -35,6 +36,8 @@ Estudo sistemático de História em 5 níveis, com fontes acadêmicas reais, map
 | `OPENAI_API_KEY` | sua chave da OpenAI |
 | `OPENAI_MODEL` | `gpt-4.1` (texto dos níveis e chat) |
 | `OPENAI_MODEL_RAPIDO` | `gpt-4.1-mini` (triagem, perguntas, correção) |
+| `CORE_API_KEY` | opcional: chave gratuita da CORE (textos completos em acesso aberto) |
+| `SEMANTIC_SCHOLAR_API_KEY` | opcional: chave gratuita do Semantic Scholar (evita limite compartilhado) |
 | `ALLOWED_EMAILS` | seu e-mail (só ele consegue entrar) |
 | `CONTATO_APIS` | seu e-mail (enviado às APIs públicas, boa prática) |
 | `AUTOR_NOME` | nome na capa da apostila |
@@ -59,7 +62,7 @@ npm test                     # testes de ABNT, verificação de trechos e do pip
 
 ## Créditos das bases
 
-- **Artigos e livros:** OpenAlex e Crossref.
+- **Artigos, teses e livros:** OpenAlex, Crossref, Semantic Scholar, CORE, BDTD (IBICT) e Internet Archive.
 - **Mapas:**
   - países atuais: Natural Earth (via world-atlas);
   - fronteiras de época: [historical-basemaps](https://github.com/aourednik/historical-basemaps) (André Ourednik, GPL-3.0), aproximadas e com nomes em inglês;

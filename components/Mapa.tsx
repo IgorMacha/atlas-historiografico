@@ -4,7 +4,7 @@ import * as d3 from "d3";
 import { feature } from "topojson-client";
 import { BASEMAPS, rotuloBasemap, fmtAno } from "@/lib/periodos";
 
-export type Lugar = { nome_no_periodo: string; nome_atual: string; pais_atual: string; papel: string; fonte: string; lat: number; lon: number };
+export type Lugar = { nome_no_periodo: string; nome_atual: string; pais_atual: string; papel: string; fonte: string; lat: number; lon: number; secao?: number };
 export type MapaDados = { basemap: string | null; ano: number | null; lugares: Lugar[] } | null;
 
 // Bases cartográficas abertas servidas por CDN (jsDelivr):
@@ -36,7 +36,7 @@ const geo = (n: string) =>
     .then(rebobinar));
 
 /** Mapa atual (Natural Earth) + fronteiras de época (historical-basemaps) + lugares citados nas fontes. */
-export default function Mapa({ dados, brasil, chaves, estatico = false, altura }: { dados: MapaDados; brasil?: boolean; chaves: Record<string, string>; estatico?: boolean; altura?: number }) {
+export default function Mapa({ dados, brasil, chaves, estatico = false, altura, compacto = false }: { dados: MapaDados; brasil?: boolean; chaves: Record<string, string>; estatico?: boolean; altura?: number; compacto?: boolean }) {
   const box = useRef<HTMLDivElement>(null);
   const svgRef = useRef<SVGSVGElement>(null);
   const tip = useRef<HTMLDivElement>(null);
@@ -55,7 +55,13 @@ export default function Mapa({ dados, brasil, chaves, estatico = false, altura }
       const g = svg.append("g");
       g.append("path").datum({ type: "Sphere" } as any).attr("d", path as any).attr("fill", "var(--sea)");
       g.append("path").datum(d3.geoGraticule10()).attr("d", path as any).attr("fill", "none").attr("stroke", "var(--line)").attr("stroke-width", 0.4).attr("vector-effect", "non-scaling-stroke");
-      const [atual, ufs, hist] = await Promise.all([geo("atual"), brasil ? geo("br_ufs").catch(() => null) : null, camada ? geo(camada).catch(() => null) : null]);
+      let atual: any, ufs: any, hist: any;
+      try {
+        [atual, ufs, hist] = await Promise.all([geo("atual"), brasil ? geo("br_ufs").catch(() => null) : null, camada ? geo(camada).catch(() => null) : null]);
+      } catch {
+        if (vivo) svg.append("text").attr("x", W / 2).attr("y", H / 2).attr("text-anchor", "middle").style("fill", "var(--muted)").style("font-size", "14px").text("Não foi possível carregar o mapa agora. Recarregue a página.");
+        return;
+      }
       if (!vivo) return;
       const showTip = (ev: any, html: string) => {
         const r = el.getBoundingClientRect(), t = tip.current!;
@@ -115,7 +121,7 @@ export default function Mapa({ dados, brasil, chaves, estatico = false, altura }
 
   return (
     <div>
-      {!estatico && (
+      {!estatico && !compacto && (
         <div className="linha" style={{ margin: "0 0 10px" }}>
           <span className="small muted">Fronteiras de época:</span>
           <div className="anos">
@@ -142,7 +148,7 @@ export default function Mapa({ dados, brasil, chaves, estatico = false, altura }
         </div>
         <div className="dica" ref={tip} />
       </div>
-      {dados?.ano != null && !estatico && <p className="small muted">Ano de referência sugerido para este nível: {fmtAno(dados.ano)}. A base de fronteiras históricas é aproximada e usa nomes em inglês.</p>}
+      {dados?.ano != null && !estatico && !compacto && <p className="small muted">Ano de referência sugerido para este nível: {fmtAno(dados.ano)}. A base de fronteiras históricas é aproximada e usa nomes em inglês.</p>}
     </div>
   );
 }

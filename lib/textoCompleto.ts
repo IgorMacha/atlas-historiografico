@@ -24,6 +24,8 @@ export async function obterTextoCompleto(url: string | null | undefined): Promis
     let texto = "";
     if (ct.includes("pdf") || url.toLowerCase().endsWith(".pdf")) {
       texto = await lerPdf(Buffer.from(await r.arrayBuffer()));
+    } else if (ct.includes("text/plain")) {
+      texto = (await r.text()).slice(0, LIMITE * 2);
     } else if (ct.includes("html") || ct.includes("xml")) {
       const html = await r.text();
       // SciELO e muitos periódicos OJS publicam o corpo do artigo em <article> ou div de texto

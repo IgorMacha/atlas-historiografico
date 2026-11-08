@@ -6,7 +6,7 @@ import { usuarioAtual } from "@/lib/supabase/server";
 import { excluirEstudo } from "@/app/acoes";
 
 export const dynamic = "force-dynamic";
-const COLS_FONTE = "id,openalex_id,doi,tipo,titulo,autores,ano,revista,editora,local,volume,numero,paginas,idioma,citacoes,resumo,url,url_oa,abnt,nivel,lido,texto_completo";
+const COLS_FONTE = "id,base,instituicao,grau,openalex_id,doi,tipo,titulo,autores,ano,revista,editora,local,volume,numero,paginas,idioma,citacoes,resumo,url,url_oa,abnt,nivel,lido,texto_completo";
 
 export default async function PaginaEstudo({ params, searchParams }: { params: { id: string }; searchParams: Record<string, string> }) {
   const { sb, user } = await usuarioAtual();

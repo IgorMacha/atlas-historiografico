@@ -4,8 +4,14 @@ import { nomeABNT } from "./abnt";
 const CONTATO = process.env.CONTATO_APIS || "";
 const UA = `AtlasHistoriografico/1.0${CONTATO ? ` (mailto:${CONTATO})` : ""}`;
 
+export type Base = "openalex" | "semantic_scholar" | "core" | "bdtd" | "internet_archive";
 export type Candidato = {
-  openalex_id: string;
+  openalex_id: string; // chave única da obra (ID OpenAlex, ou prefixo da base: S2:, CORE:, BDTD:, IA:)
+  base?: Base;
+  instituicao?: string | null; // teses e dissertações
+  grau?: string | null; // "Tese (Doutorado)" | "Dissertação (Mestrado)"
+  texto_previo?: string | null; // texto completo já entregue pela base (CORE)
+  secoes?: number[]; // seções do plano de ensino para as quais a obra foi encontrada
   doi: string | null;
   tipo: string; // article | book | book-chapter
   titulo: string;
@@ -24,11 +30,11 @@ export type Candidato = {
   url_oa: string | null;
 };
 
-async function getJSON(url: string, timeoutMs = 20000): Promise<any> {
+export async function getJSON(url: string, timeoutMs = 20000, headers: Record<string, string> = {}): Promise<any> {
   const ctrl = new AbortController();
   const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const r = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json" }, signal: ctrl.signal, cache: "no-store" });
+    const r = await fetch(url, { headers: { "User-Agent": UA, Accept: "application/json", ...headers }, signal: ctrl.signal, cache: "no-store" });
     if (!r.ok) throw new Error(`HTTP ${r.status} em ${new URL(url).host}`);
     return await r.json();
   } finally {
@@ -70,6 +76,7 @@ function normalizar(w: any): Candidato | null {
     resumo: resumoDe(w.abstract_inverted_index),
     url: w.primary_location?.landing_page_url || (w.doi ?? null),
     url_oa: w.best_oa_location?.pdf_url || w.best_oa_location?.landing_page_url || null,
+    base: "openalex",
   };
 }
 

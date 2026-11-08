@@ -13,6 +13,8 @@ export type FonteRef = {
   paginas?: string | null;
   doi?: string | null;
   url?: string | null;
+  grau?: string | null; // teses: "Tese (Doutorado)" | "Dissertação (Mestrado)"
+  instituicao?: string | null;
 };
 
 const SUFIXOS = ["júnior", "junior", "jr.", "jr", "filho", "neto", "sobrinho", "segundo"];
@@ -67,6 +69,14 @@ export function referenciaPartes(f: FonteRef): { antes: string; destaque: string
       antes: `${aut ? aut + ". " : ""}`,
       destaque: t1.trim(),
       depois: `${sub.length ? ": " + sub.join(":").trim() : ""}. ${local}: ${f.editora || "[s. n.]"}, ${ano}.${doi}`,
+    };
+  }
+  if (f.tipo === "thesis") {
+    const [t1, ...sub] = titulo.split(":");
+    return {
+      antes: `${aut ? aut + ". " : ""}`,
+      destaque: t1.trim(),
+      depois: `${sub.length ? ": " + sub.join(":").trim() : ""}. ${ano}. ${f.grau || "Trabalho acadêmico"} – ${f.instituicao || "[instituição não informada]"}, ${f.local || "[s. l.]"}, ${ano}.${doi}`,
     };
   }
   if (f.tipo === "book-chapter") {

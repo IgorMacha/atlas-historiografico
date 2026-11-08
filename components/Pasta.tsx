@@ -8,14 +8,16 @@ import { NIVEIS, periodoPorId } from "@/lib/periodos";
 import { chavesCitacao, ordenarReferencias, referenciaPartes, referenciaTexto, type FonteRef } from "@/lib/abnt";
 import { concluirNivel, salvarAnotacoes, marcarLida } from "@/app/acoes";
 import { supabaseNavegador } from "@/lib/supabase/client";
+import type { PlanoEnsino } from "@/lib/plano";
+import { NOME_BASE } from "@/lib/bases/nomes";
 
 export type Nivel = { id: string; n: number; status: string; etapa: string | null; titulo: string | null; conteudo: Conteudo | null; mapa: MapaDados; graficos: GraficosDados; cronologia: { ano: number; evento: string; fonte: string }[] | null; erro: string | null; gerado_em: string | null; concluido_em: string | null };
-export type Fonte = FonteRef & { tipo: string; resumo: string | null; nivel: number | null; lido: boolean; citacoes: number; tem_texto: boolean; url_oa: string | null; idioma: string | null };
+export type Fonte = FonteRef & { base?: string; tipo: string; resumo: string | null; nivel: number | null; lido: boolean; citacoes: number; tem_texto: boolean; url_oa: string | null; idioma: string | null };
 export type Pergunta = { id: string; level_id: string; ordem: number; tipo: "multipla" | "aberta"; enunciado: string; opcoes: string[] | null; gabarito: string; explicacao: string | null; fontes: string[]; resposta: string | null; feedback: string | null; nota: number | null };
 export type Mensagem = { id: string; role: "user" | "assistant"; conteudo: string; fontes: { ids?: string[]; sem_base?: boolean } | null; created_at: string };
-type Estudo = { id: string; titulo: string; tema: string; periodo: string | null; nivel_atual: number; anotacoes: string | null; created_at: string };
+type Estudo = { id: string; titulo: string; tema: string; periodo: string | null; nivel_atual: number; anotacoes: string | null; created_at: string; plano?: PlanoEnsino | null };
 
-const ABAS = [["texto", "Texto"], ["mapa", "Mapa"], ["graficos", "Gráficos e cronologia"], ["perguntas", "Perguntas"], ["chat", "Chat"], ["fontes", "Fontes"], ["notas", "Anotações"]] as const;
+const ABAS = [["trilha", "Trilha"], ["texto", "Texto"], ["mapa", "Mapa"], ["graficos", "Gráficos e cronologia"], ["perguntas", "Perguntas"], ["chat", "Chat"], ["fontes", "Fontes"], ["notas", "Anotações"]] as const;
 type Aba = (typeof ABAS)[number][0];
 
 function useToast() {
@@ -62,10 +64,19 @@ export default function Pasta({ estudo, niveis: niveis0, fontes: fontes0, pergun
     return () => clearInterval(t);
   }, [gerando, estudo.id, router]);
 
+  const [plano, setPlano] = useState<PlanoEnsino | null>(estudo.plano || null);
+  const planoRef = useRef<PlanoEnsino | null>(estudo.plano || null);
   const gerar = useCallback(async (n: number) => {
     setNiveis((old) => (old.some((l) => l.n === n) ? old.map((l) => (l.n === n ? { ...l, status: "gerando", etapa: "Iniciando", erro: null } : l)) : [...old, { id: "", n, status: "gerando", etapa: "Iniciando", titulo: null, conteudo: null, mapa: null, graficos: null, cronologia: null, erro: null, gerado_em: null, concluido_em: null }]));
     setSel(n);
     setAba("texto");
+    if (!planoRef.current?.niveis?.length) {
+      setNiveis((old) => old.map((l) => (l.n === n ? { ...l, etapa: "Montando o plano de ensino dos 5 níveis (cerca de 1 minuto)" } : l)));
+      const rp = await fetch(`/api/estudos/${estudo.id}/plano`, { method: "POST" });
+      const jp = await rp.json().catch(() => ({}));
+      if (!rp.ok) { setNiveis((old) => old.map((l) => (l.n === n ? { ...l, status: "erro", erro: jp.erro || "Falha ao montar o plano de ensino." } : l))); return; }
+      planoRef.current = jp; setPlano(jp);
+    }
     const r = await fetch(`/api/estudos/${estudo.id}/niveis/${n}`, { method: "POST" });
     if (!r.ok) {
       const j = await r.json().catch(() => ({}));
@@ -126,7 +137,7 @@ export default function Pasta({ estudo, niveis: niveis0, fontes: fontes0, pergun
             <div className="olho">Nível {sel} de 5 · {NIVEIS[sel - 1].nome} · cerca de {nivel.conteudo.palavras} palavras</div>
             <h2 style={{ margin: "4px 0 14px" }}>{nivel.conteudo.titulo}</h2>
             {!!nivel.conteudo.avisos?.length && <div className="aviso forte" style={{ marginBottom: 16 }}>{nivel.conteudo.avisos.map((a, i) => <div key={i}>{a}</div>)}</div>}
-            <TextoNivel c={nivel.conteudo} chaves={chaves} aoClicar={verFonte} />
+            <TextoNivel c={nivel.conteudo} chaves={chaves} aoClicar={verFonte} mapa={nivel.mapa} brasil={estudo.periodo?.startsWith("br-")} />
             <div className="sec linha">
               <button className={`btn ${nivel.concluido_em ? "" : "pri"}`} onClick={async () => { await concluirNivel(estudo.id, sel, !nivel.concluido_em); setNiveis((o) => o.map((l) => (l.n === sel ? { ...l, concluido_em: l.concluido_em ? null : new Date().toISOString() } : l))); toast.show(nivel.concluido_em ? "Nível reaberto" : `Nível ${sel} concluído`); router.refresh(); }}>
                 {nivel.concluido_em ? "✓ Concluído (reabrir)" : `Concluir nível ${sel}`}
@@ -172,6 +183,7 @@ export default function Pasta({ estudo, niveis: niveis0, fontes: fontes0, pergun
         {aba === "chat" && <Chat estudoId={estudo.id} msgs={msgs} setMsgs={setMsgs} chaves={chaves} verFonte={verFonte} aoAdicionar={() => router.refresh()} toast={toast.show} />}
         {aba === "fontes" && <Fontes fontes={fontes} chaves={chaves} foco={focoFonte} setFontes={setFontes} toast={toast.show} />}
         {aba === "notas" && <Notas estudo={estudo} />}
+        {aba === "trilha" && <Trilha plano={plano} niveis={niveis} irPara={(n) => { setSel(n); setAba("texto"); }} />}
       </section>
       {toast.el}
     </div>
@@ -312,8 +324,8 @@ function Fontes({ fontes, chaves, foco, setFontes, toast }: { fontes: Fonte[]; c
           return (
             <div key={f.id} id={`f-${f.id}`} className={`fonte ${f.lido ? "lida" : ""}`} style={foco === f.id ? { boxShadow: "0 0 0 2px var(--accent)" } : undefined}>
               <div className="linha entre">
-                <span className="linha"><span className="pill oc">{f.tipo === "book" ? "Livro" : f.tipo === "book-chapter" ? "Capítulo" : "Artigo"}</span><span className="pill">{chaves[f.id]}</span>{f.nivel ? <span className="pill">nível {f.nivel}</span> : <span className="pill">adicionada pelo chat</span>}{f.tem_texto && <span className="pill ok">texto completo lido</span>}</span>
-                <span className="small muted">{f.citacoes} citações (OpenAlex)</span>
+                <span className="linha"><span className="pill oc">{f.tipo === "book" ? "Livro" : f.tipo === "book-chapter" ? "Capítulo" : f.tipo === "thesis" ? (f.grau?.split(" ")[0] || "Tese") : "Artigo"}</span><span className="pill">{NOME_BASE[f.base || "openalex"] || f.base}</span><span className="pill">{chaves[f.id]}</span>{f.nivel ? <span className="pill">nível {f.nivel}</span> : <span className="pill">adicionada pelo chat</span>}{f.tem_texto && <span className="pill ok">texto completo lido</span>}</span>
+                <span className="small muted">{f.citacoes ? `${f.citacoes} citações` : ""}</span>
               </div>
               <div className="ref">{pr.antes}<strong>{pr.destaque}</strong>{pr.depois}</div>
               {f.resumo && <details><summary className="small">Resumo</summary><div className="resumo">{f.resumo}</div></details>}
@@ -341,6 +353,38 @@ function Notas({ estudo }: { estudo: Estudo }) {
       <label htmlFor="notas" className="small muted">Leituras, páginas, dúvidas e ideias deste estudo.</label>
       <textarea id="notas" className="campo" style={{ minHeight: 320 }} value={v} onChange={(e) => { setV(e.target.value); clearTimeout(t.current); setSt("Salvando…"); t.current = setTimeout(async () => { await salvarAnotacoes(estudo.id, e.target.value); setSt("Salvo às " + new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })); }, 700); }} />
       <p className="small muted">{st}</p>
+    </div>
+  );
+}
+
+function Trilha({ plano, niveis, irPara }: { plano: PlanoEnsino | null; niveis: Nivel[]; irPara: (n: number) => void }) {
+  if (!plano?.niveis?.length)
+    return <p className="muted sec">O plano de ensino é montado quando o nível 1 começa a ser gerado. Ele organiza os 5 níveis em ordem de aprendizado, do surgimento do tema até as questões de pesquisa.</p>;
+  return (
+    <div className="sec">
+      <p className="lead" style={{ marginTop: 0 }}>{plano.visao_geral}</p>
+      <p className="small muted">{plano.fio_condutor}</p>
+      <div className="grade sec">
+        {plano.niveis.map((nv) => {
+          const l = niveis.find((x) => x.n === nv.n);
+          return (
+            <div key={nv.n} className="card">
+              <div className="linha entre">
+                <div className="olho">Nível {nv.n} · {NIVEIS[nv.n - 1].nome}</div>
+                <span className={`pill ${l?.concluido_em ? "ok" : l?.status === "pronto" ? "oc" : ""}`}>{l?.concluido_em ? "concluído" : l?.status === "pronto" ? "pronto" : l?.status === "gerando" ? "gerando" : "a gerar"}</span>
+              </div>
+              <h3 style={{ margin: "4px 0 6px" }}>{nv.titulo}</h3>
+              <p className="small muted" style={{ marginTop: 0 }}>{nv.objetivo}</p>
+              <ol style={{ margin: 0, paddingLeft: 20, fontFamily: "var(--f-body)", fontSize: 15.5 }}>
+                {nv.secoes.map((s, i) => (
+                  <li key={i} style={{ marginBottom: 6 }}><b>{s.titulo}</b><br /><span className="muted">{s.pergunta_guia}</span></li>
+                ))}
+              </ol>
+              {l?.status === "pronto" && <button className="btn sm" style={{ marginTop: 10 }} onClick={() => irPara(nv.n)}>Ler o nível {nv.n}</button>}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
