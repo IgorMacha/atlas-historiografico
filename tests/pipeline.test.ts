@@ -22,12 +22,14 @@ const respostas: Record<string, any> = {
     abertura: "Este nível apresenta o sistema de capitanias.",
     secoes: [
       { titulo: "Origem", paragrafos: [
-        { texto: "As capitanias foram criadas em 1534 [S1]. Os donatários deviam povoar a terra [S1].", fontes: ["S1"], citacao_direta: { fonte: "S1", trecho: "propondo um novo desenho a partir das cartas de doação" } },
-        { texto: "Frase sem fonte que deve sumir.", fontes: [], citacao_direta: null },
-        { texto: "Fonte inexistente [S9].", fontes: ["S9"], citacao_direta: null },
+        { tipo: "fonte", texto: "As capitanias foram criadas em 1534 [S1]. Os donatários deviam povoar a terra [S1].", fontes: ["S1"], citacao_direta: { fonte: "S1", trecho: "propondo um novo desenho a partir das cartas de doação" } },
+        { tipo: "explicacao", texto: "Para entender isso, vale pensar em como a Coroa delegava custos.", fontes: [], citacao_direta: null },
+        { tipo: "explicacao", texto: "Isso mudou em 1549 com o governo-geral.", fontes: [], citacao_direta: null },
+        { tipo: "fonte", texto: "Frase de fato sem fonte que deve sumir.", fontes: [], citacao_direta: null },
+        { tipo: "fonte", texto: "Fonte inexistente [S9].", fontes: ["S9"], citacao_direta: null },
       ] },
       { titulo: "Pernambuco", paragrafos: [
-        { texto: "Olinda concentrou engenhos [S2].", fontes: ["S2"], citacao_direta: { fonte: "S2", trecho: "um trecho inventado que não está na fonte de jeito nenhum" } },
+        { tipo: "fonte", texto: "Olinda concentrou engenhos [S2].", fontes: ["S2"], citacao_direta: { fonte: "S2", trecho: "um trecho inventado que não está na fonte de jeito nenhum" } },
       ] },
     ],
     conceitos: [{ termo: "Donatário", definicao: "Quem recebia a capitania.", fontes: ["S1"] }, { termo: "Sem fonte", definicao: "x", fontes: ["S7"] }],
@@ -67,8 +69,12 @@ test("pipeline gera nível só com conteúdo verificável", async () => {
   assert.equal(lv.status, "pronto", lv.erro);
   const c = lv.conteudo;
   // parágrafos sem fonte ou com fonte inexistente são removidos
-  assert.equal(c.secoes[0].paragrafos.length, 1);
-  assert.match(c.avisos.join(" "), /2 parágrafo/);
+  // explicativo sem números novos fica; explicativo com data inventada e parágrafo de fato sem fonte saem
+  assert.equal(c.secoes[0].paragrafos.length, 2);
+  assert.equal(c.secoes[0].paragrafos[1].tipo, "explicacao");
+  assert.match(c.avisos.join(" "), /2 parágrafo\(s\) com fatos/);
+  assert.match(c.avisos.join(" "), /1 parágrafo\(s\) explicativo/);
+  assert.equal(c.estatisticas.citacoesDiretas, 1);
   // citação direta: a literal fica, a inventada sai
   assert.ok(c.secoes[0].paragrafos[0].citacao);
   assert.equal(c.secoes[1].paragrafos[0].citacao, null);

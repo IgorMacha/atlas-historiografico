@@ -107,6 +107,7 @@ textarea.campo { min-height: 120px; font-family: var(--f-body); font-size: 16px;
 .prosa { font-family: var(--f-body); font-size: 17.5px; line-height: 1.7; max-width: 70ch; }
 .prosa p { margin: 0 0 14px; text-align: justify; hyphens: auto; }
 .prosa h3 { font-size: 21px; margin: 26px 0 10px; }
+.prosa p.expl { border-left: 2px dotted var(--line); padding-left: 12px; margin-left: -14px; }
 .prosa .cit { color: var(--muted); white-space: nowrap; }
 .prosa .cit button { all: unset; cursor: pointer; border-bottom: 1px dotted var(--muted); }
 .prosa blockquote { margin: 0 0 16px; padding: 6px 0 6px 16px; border-left: 3px solid var(--ochre); font-style: italic; font-size: 16px; }

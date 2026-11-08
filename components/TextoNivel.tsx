@@ -3,9 +3,10 @@ import { partirCitacoes } from "@/lib/citar";
 export type Conteudo = {
   titulo: string;
   abertura: string;
-  secoes: { titulo: string; paragrafos: { texto: string; fontes: string[]; citacao: { fonte: string; trecho: string } | null }[] }[];
+  secoes: { titulo: string; paragrafos: { tipo?: "fonte" | "explicacao"; texto: string; fontes: string[]; citacao: { fonte: string; trecho: string } | null }[] }[];
   conceitos: { termo: string; definicao: string; fontes: string[] }[];
   avisos: string[];
+  estatisticas?: { paragrafos: number; comFonte: number; explicativos: number; citacoesDiretas: number };
   palavras: number;
   fontes_usadas: string[];
   buscas: string[];
@@ -47,7 +48,7 @@ export default function TextoNivel({ c, chaves, aoClicar, numeracao }: { c: Cont
           <h3>{numeracao ? `${numeracao}.${i + 1} ` : ""}{s.titulo}</h3>
           {s.paragrafos.map((p, j) => (
             <div key={j}>
-              <p><Paragrafo texto={p.texto} chaves={chaves} aoClicar={aoClicar} /></p>
+              <p className={p.tipo === "explicacao" ? "expl" : undefined} title={p.tipo === "explicacao" ? "Parágrafo explicativo escrito pela IA para ligar as ideias (sem fatos novos)" : undefined}><Paragrafo texto={p.texto} chaves={chaves} aoClicar={aoClicar} /></p>
               {p.citacao && <CitacaoDireta c={p.citacao} chaves={chaves} />}
             </div>
           ))}

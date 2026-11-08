@@ -12,11 +12,13 @@ export type Estudo = { id: string; titulo: string; tema: string; divisao: string
 export type FonteDB = Candidato & { id: string; abnt: string; texto_completo: string | null; nivel: number | null };
 
 const REGRAS_FONTES = `REGRAS INEGOCIÁVEIS:
-- Use SOMENTE as informações presentes no material das fontes [S#] fornecido. Não use conhecimento próprio para acrescentar fatos, datas, números, nomes ou interpretações que não estejam no material.
-- Toda afirmação factual deve terminar com o marcador da(s) fonte(s) que a sustentam, ex.: "... no século XVI [S3]." ou "[S2][S5]".
+- O texto combina dois tipos de parágrafo:
+  (a) "fonte": parágrafos com fatos, datas, números, nomes, processos e interpretações tirados do material das fontes [S#]. Toda afirmação desse tipo termina com o marcador da(s) fonte(s), ex.: "... no século XVI [S3]." ou "[S2][S5]".
+  (b) "explicacao": parágrafos didáticos escritos por você para ligar as ideias, contextualizar, explicar conceitos com outras palavras, comparar o que as fontes dizem e conduzir o raciocínio do aluno. Eles NÃO podem trazer fatos novos: nada de datas, números, nomes próprios, eventos ou citações que não estejam no material.
 - Nunca escreva nomes de autores com ano entre parênteses; use apenas os marcadores [S#]. O sistema converte para ABNT.
-- Se o material não cobre um aspecto, diga explicitamente que as fontes consultadas não tratam dele, em vez de preencher a lacuna.
-- Citações diretas: só copie trechos que estejam LITERALMENTE no material da fonte (o sistema confere letra por letra e descarta o que não bater).`;
+- Se o material não cobre um aspecto, diga explicitamente que as fontes consultadas não tratam dele.
+- Citações diretas: só copie trechos que estejam LITERALMENTE no material da fonte (o sistema confere letra por letra e descarta o que não bater).
+`;
 
 async function etapa(sb: SupabaseClient, levelId: string, texto: string) {
   await sb.from("levels").update({ etapa: texto }).eq("id", levelId);
@@ -55,7 +57,7 @@ const textoVerificavel = (f: FonteDB) => `${f.titulo}\n${f.resumo || ""}\n${f.te
 
 type Plano = { buscas: string[]; secoes: string[]; ano_referencia_mapa: number | null };
 type Triagem = { selecionadas: { indice: number; motivo: string }[] };
-type Paragrafo = { texto: string; fontes: string[]; citacao_direta: { fonte: string; trecho: string } | null };
+type Paragrafo = { tipo: "fonte" | "explicacao"; texto: string; fontes: string[]; citacao_direta: { fonte: string; trecho: string } | null };
 type Escrita = {
   titulo: string;
   abertura: string;
@@ -185,7 +187,10 @@ Planeje:
     sistema: `Você é um historiador e professor universitário brasileiro escrevendo material de estudo para graduação em História, em português do Brasil, com rigor acadêmico e clareza.\n${REGRAS_FONTES}`,
     usuario: `TEMA: ${estudo.tema}\nPERÍODO: ${periodo}\nNÍVEL ${n} DE 5 — ${nivel.nome}: ${nivel.foco}\n${resumoAnteriores ? `NÍVEIS JÁ ESTUDADOS (não repita, aprofunde):\n${resumoAnteriores}\n` : ""}SEÇÕES SUGERIDAS: ${plano.secoes.join(" | ")} (ajuste conforme o que as fontes realmente sustentam)
 
-TAREFA: escreva o texto deste nível com 1.600 a 2.100 palavras (3 a 4 páginas), em 5 a 7 seções, com parágrafos densos (4 a 7 frases). A complexidade deve corresponder ao nível ${n} (nível 1 introdutório; nível 5 de pesquisa). Em "fontes" de cada parágrafo liste os rótulos usados no texto. Use "citacao_direta" em no máximo 4 parágrafos, só com trechos literais curtos (até 40 palavras) do material.
+TAREFA: escreva um texto corrido e bem desenvolvido para este nível, com 2.000 a 2.600 palavras (3 a 4 páginas), em 5 a 7 seções, com parágrafos densos (4 a 7 frases). A complexidade deve corresponder ao nível ${n} (nível 1 introdutório; nível 5 de pesquisa) e o texto deve aprofundar o que já foi visto, não repetir.
+- Intercale parágrafos "fonte" e "explicacao" para que a leitura flua como uma aula escrita. Cada seção deve ter pelo menos 2 parágrafos "fonte"; no total, pelo menos 60% dos parágrafos devem ser "fonte".
+- Em "fontes" de cada parágrafo liste os rótulos usados no texto (vazio nos parágrafos "explicacao").
+- Traga citações diretas: em cada seção, coloque "citacao_direta" em pelo menos um parágrafo "fonte" sempre que o material tiver um trecho adequado (trechos literais de até 40 palavras; no máximo 10 no texto todo).
 Também extraia, SOMENTE do material:
 - "conceitos": 4 a 8 conceitos-chave com definição baseada nas fontes;
 - "cronologia": eventos com ano explícito no material (o número do ano precisa aparecer no texto da fonte indicada);
@@ -198,7 +203,7 @@ ${mat.texto}`,
     schema: obj({
       titulo: str,
       abertura: str,
-      secoes: arr(obj({ titulo: str, paragrafos: arr(obj({ texto: str, fontes: arr(str), citacao_direta: { anyOf: [obj({ fonte: str, trecho: str }), { type: "null" }] } })) })),
+      secoes: arr(obj({ titulo: str, paragrafos: arr(obj({ tipo: { type: "string", enum: ["fonte", "explicacao"] }, texto: str, fontes: arr(str), citacao_direta: { anyOf: [obj({ fonte: str, trecho: str }), { type: "null" }] } })) })),
       conceitos: arr(obj({ termo: str, definicao: str, fontes: arr(str) })),
       cronologia: arr(obj({ ano: int, evento: str, fonte: str })),
       lugares: arr(obj({ nome_no_periodo: str, nome_atual: str, pais_atual: str, papel: str, fonte: str })),
@@ -210,7 +215,9 @@ ${mat.texto}`,
   await etapa(sb, levelId, "Conferindo citações, datas e lugares contra o texto das fontes");
   const avisos: string[] = [];
   const idDe = (r: string) => mat.porRotulo[r.replace(/[\[\]\s]/g, "")]?.id;
-  let removidos = 0, citDescartadas = 0, palavras = 0;
+  let removidos = 0, explRemovidas = 0, citDescartadas = 0, palavras = 0;
+  // números que existem no material (para conferir parágrafos explicativos)
+  const numsMaterial = new Set(Object.values(mat.porRotulo).flatMap((f) => (textoVerificavel(f).match(/\d{2,}/g) || [])));
   const secoes = escrita.secoes
     .map((s) => ({
       titulo: s.titulo,
@@ -220,7 +227,16 @@ ${mat.texto}`,
           const noTexto = [...p.texto.matchAll(/\[(S\d+)\]/g)].map((m) => m[1]);
           const validos = [...new Set([...noTexto, ...p.fontes])].filter((r) => idDe(r));
           const texto = p.texto.replace(/\[(S\d+)\]/g, (m, r) => (idDe(r) ? `[[${idDe(r)}]]` : ""));
-          if (!validos.length) { removidos++; return null; }
+          if (!validos.length) {
+            // Parágrafo explicativo: aceito só se não trouxer números/datas ausentes do material
+            const nums = texto.match(/\d{2,}/g) || [];
+            if (p.tipo === "explicacao" && nums.every((x) => numsMaterial.has(x))) {
+              palavras += texto.split(/\s+/).length;
+              return { tipo: "explicacao" as const, texto: texto.replace(/\s{2,}/g, " ").trim(), fontes: [] as string[], citacao: null };
+            }
+            if (p.tipo === "explicacao") explRemovidas++; else removidos++;
+            return null;
+          }
           let citacao: { fonte: string; trecho: string } | null = null;
           if (p.citacao_direta) {
             const f = mat.porRotulo[p.citacao_direta.fonte.replace(/[\[\]\s]/g, "")];
@@ -228,14 +244,19 @@ ${mat.texto}`,
             else citDescartadas++;
           }
           palavras += texto.split(/\s+/).length;
-          return { texto, fontes: validos.map((r) => idDe(r)!), citacao };
+          return { tipo: "fonte" as const, texto, fontes: validos.map((r) => idDe(r)!), citacao };
         })
         .filter(Boolean),
     }))
-    .filter((s) => s.paragrafos.length);
-  if (removidos) avisos.push(`${removidos} parágrafo(s) foram removidos por não indicarem fonte.`);
+    .filter((s) => s.paragrafos.some((p: any) => p?.tipo === "fonte"));
+  if (removidos) avisos.push(`${removidos} parágrafo(s) com fatos foram removidos por não indicarem fonte.`);
+  if (explRemovidas) avisos.push(`${explRemovidas} parágrafo(s) explicativo(s) foram removidos por trazerem datas ou números que não estão nas fontes.`);
+  const totalPar = secoes.reduce((a, s) => a + s.paragrafos.length, 0);
+  const comFonte = secoes.reduce((a, s) => a + s.paragrafos.filter((p: any) => p.tipo === "fonte").length, 0);
+  const comCitacao = secoes.reduce((a, s) => a + s.paragrafos.filter((p: any) => p.citacao).length, 0);
+  if (!comCitacao) avisos.push("Nenhuma citação direta pôde ser conferida no texto das fontes deste nível.");
   if (citDescartadas) avisos.push(`${citDescartadas} citação(ões) direta(s) foram descartadas porque o trecho não confere com o texto da fonte.`);
-  if (palavras < 1300) avisos.push(`O texto ficou com cerca de ${palavras} palavras: as fontes encontradas não sustentaram um texto mais longo.`);
+  if (palavras < 1600) avisos.push(`O texto ficou com cerca de ${palavras} palavras: as fontes encontradas não sustentaram um texto mais longo.`);
   if (!secoes.length) throw new Error("A IA não produziu texto verificável a partir das fontes. Tente gerar de novo.");
 
   const conceitos = escrita.conceitos
@@ -325,6 +346,7 @@ ${mat.texto}`,
     titulo: escrita.titulo,
     abertura: escrita.abertura,
     secoes,
+    estatisticas: { paragrafos: totalPar, comFonte, explicativos: totalPar - comFonte, citacoesDiretas: comCitacao },
     conceitos,
     avisos,
     palavras,

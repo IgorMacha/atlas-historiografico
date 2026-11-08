@@ -135,7 +135,7 @@ export default function Pasta({ estudo, niveis: niveis0, fontes: fontes0, pergun
               {sel < 5 && !niveis.find((l) => l.n === sel + 1) && <button className="btn" disabled={gerando} onClick={() => gerar(sel + 1)}>Gerar nível {sel + 1} →</button>}
               {sel < 5 && niveis.find((l) => l.n === sel + 1) && <button className="btn" onClick={() => setSel(sel + 1)}>Ir para o nível {sel + 1} →</button>}
             </div>
-            <p className="small muted sec">Texto escrito por IA ({nivel.conteudo.modelo}) somente a partir das fontes listadas, com citações e datas conferidas automaticamente contra o resumo ou o texto completo de cada fonte. Buscas feitas: {nivel.conteudo.buscas.join(" · ")}.</p>
+            <p className="small muted sec">{nivel.conteudo.estatisticas ? `${nivel.conteudo.estatisticas.comFonte} parágrafos com fonte, ${nivel.conteudo.estatisticas.explicativos} explicativos (marcados com borda pontilhada) e ${nivel.conteudo.estatisticas.citacoesDiretas} citações diretas conferidas. ` : ""}Texto escrito por IA ({nivel.conteudo.modelo}) a partir das fontes listadas; fatos, citações e datas são conferidos automaticamente contra o resumo ou o texto completo de cada fonte, e os parágrafos explicativos não podem trazer datas ou números ausentes delas. Buscas feitas: {nivel.conteudo.buscas.join(" · ")}.</p>
           </div>
         )}
 

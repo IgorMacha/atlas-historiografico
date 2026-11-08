@@ -17,6 +17,7 @@ body:has(.apostila){background:#e9ecee}
 .apostila .prosa p[style]{text-indent:0}
 .apostila .prosa h3{font-size:12pt;font-weight:700;margin:18pt 0 6pt;text-transform:none}
 .apostila .prosa blockquote{margin:6pt 0 12pt 4cm;padding:0;border:0;font-size:10pt;line-height:1;font-style:normal;text-align:justify}
+.apostila .prosa p.expl{border:0;padding-left:0;margin-left:0}
 .apostila .prosa .cit{color:#111;white-space:normal}
 .apostila .cap{font-size:12pt;font-weight:700;text-transform:uppercase;margin:0 0 18pt}
 .capa{display:flex;flex-direction:column;justify-content:space-between;text-align:center;min-height:24cm;text-transform:uppercase;font-weight:700}
